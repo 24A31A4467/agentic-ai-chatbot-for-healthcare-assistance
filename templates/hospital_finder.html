@@ -244,7 +244,7 @@ body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
       <div class="nb-name" id="nb-name">—</div>
       <div class="nb-dist" id="nb-dist">—</div>
       <div class="nb-reason" id="nb-reason">—</div>
-      <button class="nb-dir" onclick="openDirections(0)">🗺️ Get Directions</button>
+      <button class="nb-dir" onclick="dir(0)">🗺️ Get Directions</button>
     </div>
   </div>
 </div>
@@ -301,7 +301,7 @@ const KB = {
   'global':['multi-specialty','Cardiology','Neurology'],
   'continental':['multi-specialty','Orthopedics','Cardiology'],
   'maxcure':['Oncology','multi-specialty'],
-  'hospital':['multi-specialty','General Medicine'],
+  'hospital':['General Medicine'],
   'medical college':['multi-specialty','Emergency','General Medicine'],
   'institute':['multi-specialty','Emergency'],
 };
@@ -439,70 +439,36 @@ function interpretSymptom(sym){
 // ════════════════════════════════════════════════
 // FETCH — via Flask Proxy (Most Reliable)
 // ════════════════════════════════════════════════
-const OVERPASS_MIRRORS = [
-  'https://overpass-api.de/api/interpreter',
-  'https://overpass.kumi.systems/api/interpreter',
-  'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
-];
-
-async function fetchFromMirror(query, mirrorUrl) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 18000);
-  try {
-    const res = await fetch(mirrorUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: 'data=' + encodeURIComponent(query),
-      signal: controller.signal
-    });
-    clearTimeout(timer);
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const data = await res.json();
-    return data.elements || [];
-  } catch(e) {
-    clearTimeout(timer);
-    throw e;
-  }
-}
-
-function fetchHospitals(anal) {
+function fetchHospitals(anal){
   showLoader(`Finding ${anal.spec} hospitals near you...`);
   clearMarkers();
   document.getElementById('nb').classList.remove('show');
-  hideError();
 
-  const rm = radius * 1000;
-  const query = `[out:json][timeout:25];(node["amenity"="hospital"](around:${rm},${userLat},${userLng});way["amenity"="hospital"](around:${rm},${userLat},${userLng});relation["amenity"="hospital"](around:${rm},${userLat},${userLng});node["amenity"="clinic"](around:${rm},${userLat},${userLng});way["amenity"="clinic"](around:${rm},${userLat},${userLng});relation["amenity"="clinic"](around:${rm},${userLat},${userLng});node["healthcare"~"hospital|clinic"](around:${rm},${userLat},${userLng});way["healthcare"~"hospital|clinic"](around:${rm},${userLat},${userLng});relation["healthcare"~"hospital|clinic"](around:${rm},${userLat},${userLng}););out body;>;out skel qt;`;
+  const rm=radius*1000;
+  const query=`[out:json][timeout:30];(node["amenity"="hospital"](around:${rm},${userLat},${userLng});way["amenity"="hospital"](around:${rm},${userLat},${userLng});node["amenity"="clinic"](around:${rm},${userLat},${userLng});node["healthcare"~"hospital|clinic"](around:${rm},${userLat},${userLng}););out body;>;out skel qt;`;
 
-  let mirrorIndex = 0;
+  lastQuery = query;
 
-  function tryNext() {
-    if (mirrorIndex >= OVERPASS_MIRRORS.length) {
-      hideLoader();
-      showError('Could not reach hospital data. Check your internet and try again, or increase the search radius.');
+  // Try Flask proxy first (most reliable)
+  fetch('/overpass-proxy', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({query})
+  })
+  .then(r=>{ if(!r.ok) throw new Error('Server error '+r.status); return r.json(); })
+  .then(data=>{
+    hideLoader();
+    if(data.error && !data.elements){
+      showError('Could not reach hospital data server. Check your internet connection.');
       return;
     }
-    const url = OVERPASS_MIRRORS[mirrorIndex++];
-    setStatus('Trying server ' + mirrorIndex + '/' + OVERPASS_MIRRORS.length + '...');
-    showLoader(`Connecting to hospital database (attempt ${mirrorIndex})...`);
-
-    fetchFromMirror(query, url)
-      .then(elements => {
-        hideLoader();
-        setStatus('Location found ✓');
-        if (!elements.length) {
-          showError('No hospitals found. Try increasing the radius.');
-          return;
-        }
-        process(elements, anal);
-      })
-      .catch(err => {
-        console.warn('Mirror failed:', url, err.message);
-        tryNext();
-      });
-  }
-
-  tryNext();
+    process(data.elements||[], anal);
+  })
+  .catch(err=>{
+    hideLoader();
+    showError('Could not reach server. Check your connection and try again.');
+    console.error('Hospital fetch error:', err);
+  });
 }
 
 // ════════════════════════════════════════════════
@@ -718,7 +684,7 @@ function renderResults(hosp, anal){
         <span style="color:${col};font-weight:700;">${sc}%</span>
       </div>
       <div class="sbar"><div class="sbar-fill" style="width:${sc}%;background:${col};"></div></div>
-      <button class="dir-btn" onclick="event.stopPropagation();openDirections(${i})">
+      <button class="dir-btn" onclick="event.stopPropagation();dir(${i})">
         🗺️ Get Directions to ${h.name}
       </button>
     </div>`;
@@ -750,7 +716,7 @@ function renderMarkers(hosp){
         <span style="font-size:11px;">⭐ ${h.rating} • Relevance: ${Math.round(h.finalScore*100)}%</span><br/>
         ${h.phone?`<span style="font-size:11px;">📞 ${h.phone}</span><br/>`:''}
         ${h.addr?`<span style="font-size:10px;color:#888;">📍 ${h.addr}</span><br/>`:''}
-        <button onclick="openDirections(${i})" style="margin-top:7px;padding:6px 10px;background:#00d4ff;color:#000;border:none;border-radius:6px;cursor:pointer;font-weight:700;font-size:11px;width:100%;">🗺️ Get Directions</button>
+        <button onclick="dir(${i})" style="margin-top:7px;padding:6px 10px;background:#00d4ff;color:#000;border:none;border-radius:6px;cursor:pointer;font-weight:700;font-size:11px;width:100%;">🗺️ Get Directions</button>
       </div>`);
     if(isTop&&i===0) m.openPopup();
     markers.push(m);
@@ -771,11 +737,9 @@ function sel(i){
   markers[i]?.openPopup();
 }
 
-function openDirections(i){
+function dir(i){
   const h=ranked[i];
-  if(!h) { showToast('No hospital selected','error'); return; }
-  if(!userLat||!userLng) { showToast('Location not detected. Please refresh.','error'); return; }
-  if(!h.lat||!h.lng) { showToast('Hospital location not available','error'); return; }
+  if(!h) return;
   window.open(`https://www.google.com/maps/dir/${userLat},${userLng}/${h.lat},${h.lng}`,'_blank');
 }
 
