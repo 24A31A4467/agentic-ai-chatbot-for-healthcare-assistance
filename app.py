@@ -397,20 +397,20 @@ def get_hospitals():
 
     try:
         query = f"""
-[out:json][timeout:30];
-(
-  node["amenity"="hospital"](around:{radius},{lat},{lng});
-  way["amenity"="hospital"](around:{radius},{lat},{lng});
-  relation["amenity"="hospital"](around:{radius},{lat},{lng});
-  node["amenity"="clinic"](around:{radius},{lat},{lng});
-  way["amenity"="clinic"](around:{radius},{lat},{lng});
-  node["healthcare"~"hospital|clinic"](around:{radius},{lat},{lng});
-  way["healthcare"~"hospital|clinic"](around:{radius},{lat},{lng});
-);
-out center body;
->;
-out skel qt;
-"""
+        [out:json][timeout:30];
+        (
+          node["amenity"="hospital"](around:{radius},{lat},{lng});
+          way["amenity"="hospital"](around:{radius},{lat},{lng});
+          relation["amenity"="hospital"](around:{radius},{lat},{lng});
+          node["amenity"="clinic"](around:{radius},{lat},{lng});
+          way["amenity"="clinic"](around:{radius},{lat},{lng});
+          relation["amenity"="clinic"](around:{radius},{lat},{lng});
+          node["healthcare"~"hospital|clinic"](around:{radius},{lat},{lng});
+          way["healthcare"~"hospital|clinic"](around:{radius},{lat},{lng});
+          relation["healthcare"~"hospital|clinic"](around:{radius},{lat},{lng});
+        );
+        out body;>;out skel qt;
+        """
         response = requests.get(
             "https://overpass-api.de/api/interpreter",
             params={"data": query},
